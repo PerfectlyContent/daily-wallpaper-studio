@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { browseLibrary, getLibraryStats, getRandomFromLibrary } from '@/lib/image-cache';
+import { browseLibrary, getLibraryStats, getRandomFromLibrary } from '../../../lib/image-cache';
 
 /**
  * Browse pre-generated wallpaper library

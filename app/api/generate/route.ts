@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildPromptWithNegative, getApiForStyle } from '@/lib/prompt-builder';
-import { generateImage, createThumbnail } from '@/lib/image-api';
-import { canGenerate, incrementGenerationCount } from '@/lib/daily-limit';
-import { createServerClient } from '@/lib/supabase';
-import { WallpaperSelections, GenerateResponse } from '@/types';
-import { getPalette, getPattern } from '@/lib/style-data';
-import { hashPrompt, getCachedImage, cacheImage } from '@/lib/image-cache';
+import { buildPromptWithNegative, getApiForStyle } from '../../../lib/prompt-builder';
+import { generateImage, createThumbnail } from '../../../lib/image-api';
+import { canGenerate, incrementGenerationCount } from '../../../lib/daily-limit';
+import { createServerClient } from '../../../lib/supabase';
+import { WallpaperSelections, GenerateResponse } from '../../../types';
+import { getPalette, getPattern } from '../../../lib/style-data';
+import { hashPrompt, getCachedImage, cacheImage } from '../../../lib/image-cache';
 
 export async function POST(request: NextRequest) {
   try {

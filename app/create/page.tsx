@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback, Suspense } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import type { StyleUniverseId, TimeOfDay, Vibe } from '@/types';
+import type { StyleUniverseId, TimeOfDay, Vibe } from '../../types';
 
 // ============ COLORS ============
 const TEXT = '#111827';

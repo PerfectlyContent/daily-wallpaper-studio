@@ -1,6 +1,6 @@
 'use client';
 
-import { ColorPalette } from '@/types';
+import { ColorPalette } from '../types';
 
 interface PaletteSelectorProps {
   palettes: ColorPalette[];

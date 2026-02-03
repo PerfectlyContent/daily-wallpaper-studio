@@ -1,7 +1,7 @@
 'use client';
 
-import { TimeOfDay } from '@/types';
-import { timeOfDayOptions } from '@/lib/style-data';
+import { TimeOfDay } from '../types';
+import { timeOfDayOptions } from '../lib/style-data';
 
 interface TimeOfDayPickerProps {
   selected: TimeOfDay | null;

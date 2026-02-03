@@ -1,7 +1,7 @@
 'use client';
 
-import { Vibe } from '@/types';
-import { vibeOptions } from '@/lib/style-data';
+import { Vibe } from '../types';
+import { vibeOptions } from '../lib/style-data';
 
 interface VibePickerProps {
   selected: Vibe | null;

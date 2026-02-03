@@ -1,6 +1,6 @@
 'use client';
 
-import { Pattern } from '@/types';
+import { Pattern } from '../types';
 
 interface PatternSelectorProps {
   patterns: Pattern[];

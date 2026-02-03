@@ -1,5 +1,5 @@
 import { createServerClient } from './supabase';
-import { DailyLimit, User } from '@/types';
+import { DailyLimit, User } from '../types';
 
 /**
  * Gets today's date in YYYY-MM-DD format in the user's timezone.

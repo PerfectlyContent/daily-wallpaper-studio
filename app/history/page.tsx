@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { WallpaperRecord } from '@/types';
+import { WallpaperRecord } from '../../types';
 
 export default function HistoryPage() {
   const router = useRouter();

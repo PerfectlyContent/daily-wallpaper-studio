@@ -1,4 +1,4 @@
-import { StyleUniverse, StyleUniverseId, TimeOfDay, Vibe } from '@/types';
+import { StyleUniverse, StyleUniverseId, TimeOfDay, Vibe } from '../types';
 
 // ============================================
 // Time of Day Options

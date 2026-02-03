@@ -1,4 +1,4 @@
-import { WallpaperSelections } from '@/types';
+import { WallpaperSelections } from '../types';
 import {
   getStyleUniverse,
   getPalette,

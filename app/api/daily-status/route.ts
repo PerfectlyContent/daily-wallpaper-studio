@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getDailyStatus } from '@/lib/daily-limit';
-import { DailyStatusResponse } from '@/types';
+import { getDailyStatus } from '../../../lib/daily-limit';
+import { DailyStatusResponse } from '../../../types';
 
 export async function GET(request: NextRequest) {
   try {

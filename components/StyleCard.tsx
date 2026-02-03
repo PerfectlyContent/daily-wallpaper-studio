@@ -1,6 +1,6 @@
 'use client';
 
-import { StyleUniverse } from '@/types';
+import { StyleUniverse } from '../types';
 
 interface StyleCardProps {
   universe: StyleUniverse;

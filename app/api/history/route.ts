@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerClient } from '@/lib/supabase';
-import { HistoryResponse, WallpaperRecord } from '@/types';
+import { createServerClient } from '../../../lib/supabase';
+import { HistoryResponse, WallpaperRecord } from '../../../types';
 
 export async function GET(request: NextRequest) {
   try {
