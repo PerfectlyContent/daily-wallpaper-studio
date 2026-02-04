@@ -16,6 +16,15 @@ export async function GET(request: NextRequest) {
 
     const supabase = createServerClient();
 
+    if (!supabase) {
+      return NextResponse.json<HistoryResponse>({
+        wallpapers: [],
+        total: 0,
+        page,
+        pageSize,
+      });
+    }
+
     // Get total count
     const { count } = await supabase
       .from('wallpapers')

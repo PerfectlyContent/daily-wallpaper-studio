@@ -100,29 +100,32 @@ export async function POST(request: NextRequest) {
       ? getPattern(selections.styleUniverse, selections.pattern)
       : null;
 
-    // Save to database
+    // Save to database (skip if Supabase not configured)
+    let wallpaper: { id?: string } | null = null;
     const supabase = createServerClient();
-    const { data: wallpaper, error: dbError } = await supabase
-      .from('wallpapers')
-      .insert({
-        user_id: userId,
-        image_url: result.imageUrl,
-        thumbnail_base64: thumbnailBase64,
-        style_universe: selections.styleUniverse,
-        palette_name: palette?.name || null,
-        pattern_name: pattern?.name || null,
-        time_of_day: selections.timeOfDay,
-        vibe: selections.vibe,
-        personal_text: selections.personalText || null,
-        custom_prompt: selections.customPrompt || null,
-        prompt_sent: prompt,
-      })
-      .select()
-      .single();
+    if (supabase) {
+      const { data, error: dbError } = await supabase
+        .from('wallpapers')
+        .insert({
+          user_id: userId,
+          image_url: result.imageUrl,
+          thumbnail_base64: thumbnailBase64,
+          style_universe: selections.styleUniverse,
+          palette_name: palette?.name || null,
+          pattern_name: pattern?.name || null,
+          time_of_day: selections.timeOfDay,
+          vibe: selections.vibe,
+          personal_text: selections.personalText || null,
+          custom_prompt: selections.customPrompt || null,
+          prompt_sent: prompt,
+        })
+        .select()
+        .single();
 
-    // Log any database error but don't fail the request
-    if (dbError) {
-      console.error('Database error saving wallpaper:', dbError);
+      wallpaper = data;
+      if (dbError) {
+        console.error('Database error saving wallpaper:', dbError);
+      }
     }
 
     // Increment daily limit counter (only after successful generation)

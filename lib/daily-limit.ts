@@ -40,6 +40,7 @@ export function getMaxGenerations(tier: User['subscription_tier']): number {
  */
 export async function getDailyLimit(userId: string): Promise<DailyLimit | null> {
   const supabase = createServerClient();
+  if (!supabase) return null;
   const today = getTodayDate();
 
   // Try to get existing record
@@ -120,14 +121,14 @@ export async function canGenerate(userId: string): Promise<{
  */
 export async function incrementGenerationCount(userId: string): Promise<boolean> {
   const supabase = createServerClient();
+  if (!supabase) return true; // Skip if no Supabase
   const today = getTodayDate();
 
   // Get or create today's limit
   const limit = await getDailyLimit(userId);
 
   if (!limit) {
-    console.error('Could not get daily limit');
-    return false;
+    return true; // Skip if no limit record
   }
 
   // Increment the count
