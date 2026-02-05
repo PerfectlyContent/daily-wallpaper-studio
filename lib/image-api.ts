@@ -32,12 +32,9 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
     const genAI = new GoogleGenerativeAI(apiKey);
 
     const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash-image',
+      model: 'gemini-2.0-flash-exp',
       generationConfig: {
         responseModalities: ['Text', 'Image'],
-        imageConfig: {
-          aspectRatio: '9:16',
-        },
       } as any,
     });
 
