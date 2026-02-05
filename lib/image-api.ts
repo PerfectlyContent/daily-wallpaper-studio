@@ -35,6 +35,9 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
       model: 'gemini-2.5-flash-image',
       generationConfig: {
         responseModalities: ['Image'],
+        imageGenerationConfig: {
+          aspectRatio: '9:16',
+        },
       } as any,
     });
 
