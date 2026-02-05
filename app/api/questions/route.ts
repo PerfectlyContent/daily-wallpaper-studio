@@ -14,26 +14,40 @@ interface ConversationMessage {
  * response with the final prompt.
  */
 
-const SYSTEM_PROMPT = `You're Studio, a wallpaper designer. Chat casually.
+const SYSTEM_PROMPT = `You're Studio, a friendly wallpaper designer. Keep responses SHORT (1-2 sentences max).
 
-RULES:
-- MAX 2 sentences per reply
-- Ask ONE question per message
+CONVERSATION FLOW (3 quick questions):
+1. React enthusiastically + ask: "What vibe? Dreamy, bold, romantic, or something else?"
+2. React + ask: "Style preference - photorealistic, illustrated, or painted?"
+3. React + ask: "Want any text/words on it? Or keep it clean?"
+4. Say "Love it!" then output the image prompt
 
-FLOW:
-1. React + ask about mood/vibe
-2. React + ask about style (photo/illustrated/painted)
-3. React + ask "Want any text on it?"
-4. Say something short like "Love it!" then on THE NEXT LINE output EXACTLY:
-{"prompt": "your detailed prompt here"}
-
-IF USER WANTS TEXT: Include "with bold text reading 'THEIR_TEXT' prominently displayed"
-
-STEP 4 EXAMPLE:
+ON STEP 4, OUTPUT THIS EXACT FORMAT:
 Love it, creating now!
-{"prompt": "A phone wallpaper, 9:16 aspect ratio, cute lamp with funny face, whimsical painted style, soft pastels, with bold text reading 'GAIA' prominently displayed, warm cozy lighting. High quality, visually striking."}
 
-CRITICAL: On step 4, your response MUST end with a JSON object containing "prompt". No code blocks, just the raw JSON on its own line.`;
+PROMPT: [your detailed image description here]
+
+YOUR PROMPT MUST INCLUDE ALL OF:
+- The COMPLETE original scene from message 1 (don't summarize or lose details!)
+- The vibe/mood they chose
+- The style they chose
+- If they want text: "with decorative text '[TEXT]' sized to fit completely within the image width"
+- Aspect ratio: vertical 9:16 phone wallpaper
+- End with: "high quality, beautiful composition"
+
+EXAMPLE:
+User: "a couple dining on a cliff overlooking the ocean at sunset"
+You: "Beautiful! What vibe - romantic, peaceful, or dramatic?"
+User: "romantic"
+You: "Nice! Photorealistic, illustrated, or painted style?"
+User: "painted"
+You: "Want any text on it?"
+User: "Forever"
+You: "Love it, creating now!
+
+PROMPT: A vertical 9:16 phone wallpaper of a couple dining on a cliff overlooking the ocean at sunset, romantic painted artistic style with soft brushstrokes, warm golden hour lighting, with decorative text 'FOREVER' sized to fit completely within the image width, rich warm colors of orange pink and purple, intimate romantic atmosphere, high quality, beautiful composition"
+
+Keep chat replies SHORT. The PROMPT should be detailed (50+ words).`;
 
 export async function POST(request: Request) {
   try {
@@ -44,142 +58,124 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No messages provided' }, { status: 400 });
     }
 
-    // Try Cloudflare Workers AI first (FREE!)
-    const cfAccountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-    const cfApiToken = process.env.CLOUDFLARE_API_TOKEN;
-
-    if (cfAccountId && cfApiToken) {
-      try {
-        const aiMessage = await callCloudflareAI(cfAccountId, cfApiToken, messages);
-        return processAIResponse(aiMessage, messages);
-      } catch (err) {
-        console.error('Cloudflare AI error:', err);
-        // Fall through to OpenAI or fallback
-      }
+    const googleApiKey = process.env.GOOGLE_AI_API_KEY;
+    if (!googleApiKey) {
+      return NextResponse.json(
+        { error: 'Chat service is not configured. Please contact support.' },
+        { status: 500 }
+      );
     }
 
-    // Try OpenAI as backup
-    const openaiKey = process.env.OPENAI_API_KEY;
-    if (openaiKey) {
-      try {
-        const aiMessage = await callOpenAI(openaiKey, messages);
-        return processAIResponse(aiMessage, messages);
-      } catch (err) {
-        console.error('OpenAI chat error:', err);
-      }
-    }
+    try {
+      const aiMessage = await callGeminiChat(googleApiKey, messages);
+      return processAIResponse(aiMessage, messages);
+    } catch (err) {
+      console.error('Gemini chat error:', err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
 
-    // Final fallback
-    return NextResponse.json({
-      success: true,
-      data: {
-        reply: "I love that idea! I'm picturing something really beautiful. Let me create it for you.",
-        finalPrompt: buildFallbackPrompt(messages),
+      if (errorMsg.includes('429') || errorMsg.includes('quota') || errorMsg.includes('rate')) {
+        return NextResponse.json(
+          { error: 'Too many requests. Please wait a moment and try again.' },
+          { status: 429 }
+        );
       }
-    });
+
+      return NextResponse.json(
+        { error: 'Something went wrong. Please try again.' },
+        { status: 500 }
+      );
+    }
 
   } catch (error) {
     console.error('Questions API error:', error);
     return NextResponse.json(
-      { error: 'Server error' },
+      { error: 'Something went wrong. Please try again.' },
       { status: 500 }
     );
   }
 }
 
-async function callCloudflareAI(accountId: string, apiToken: string, messages: ConversationMessage[]): Promise<string> {
-  const chatMessages = [
-    { role: 'system', content: SYSTEM_PROMPT },
-    ...messages.map(m => ({ role: m.role, content: m.content })),
-  ];
+async function callGeminiChat(apiKey: string, messages: ConversationMessage[]): Promise<string> {
+  const { GoogleGenerativeAI } = await import('@google/generative-ai');
+  const genAI = new GoogleGenerativeAI(apiKey);
 
-  const response = await fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/meta/llama-3.1-8b-instruct`,
-    {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messages: chatMessages,
-        max_tokens: 350,
-        temperature: 0.7,
-      }),
-    }
-  );
-
-  if (!response.ok) {
-    throw new Error(`Cloudflare AI error: ${response.status}`);
-  }
-
-  const data = await response.json();
-  return data.result?.response?.trim() || '';
-}
-
-async function callOpenAI(apiKey: string, messages: ConversationMessage[]): Promise<string> {
-  const OpenAI = (await import('openai')).default;
-  const openai = new OpenAI({ apiKey });
-
-  const chatMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
-    { role: 'system', content: SYSTEM_PROMPT },
-    ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-  ];
-
-  const completion = await openai.chat.completions.create({
-    model: 'gpt-4o-mini',
-    messages: chatMessages,
-    max_tokens: 500,
-    temperature: 0.85,
+  const model = genAI.getGenerativeModel({
+    model: 'gemini-2.5-flash',
+    systemInstruction: SYSTEM_PROMPT,
   });
 
-  return completion.choices[0]?.message?.content?.trim() || '';
+  // Convert messages to Gemini format
+  const history = messages.slice(0, -1).map(m => ({
+    role: m.role === 'user' ? 'user' : 'model',
+    parts: [{ text: m.content }],
+  }));
+
+  const chat = model.startChat({ history: history as any });
+  const lastMessage = messages[messages.length - 1]?.content || '';
+
+  const result = await chat.sendMessage(lastMessage);
+  return result.response.text().trim();
 }
+
 
 function processAIResponse(aiMessage: string, messages: ConversationMessage[]) {
   console.log('AI Response:', aiMessage); // Debug
 
-  // Try multiple regex patterns to catch various formats
-  let finalPrompt: string | null = null;
+  // Check for "PROMPT:" format (Gemini style)
+  const promptMatch = aiMessage.match(/PROMPT:\s*([\s\S]+?)(?:$|(?=\n\n))/i);
 
-  // Pattern 1: Standard ```prompt block
-  const pattern1 = aiMessage.match(/```prompt\s*\n?\{[\s\S]*?"prompt"\s*:\s*"([\s\S]*?)"\s*\}/);
-  // Pattern 2: Just {"prompt": "..."} anywhere
-  const pattern2 = aiMessage.match(/\{\s*"prompt"\s*:\s*"([\s\S]*?)"\s*\}/);
-  // Pattern 3: prompt: "..." without JSON wrapper
-  const pattern3 = aiMessage.match(/"prompt"\s*:\s*"([\s\S]*?)"/);
+  if (promptMatch) {
+    const aiPrompt = promptMatch[1].trim();
+    const reply = aiMessage.replace(/PROMPT:[\s\S]+$/i, '').trim() || "Love it, creating now!";
 
-  if (pattern1) {
-    finalPrompt = pattern1[1];
-  } else if (pattern2) {
-    finalPrompt = pattern2[1];
-  } else if (pattern3) {
-    finalPrompt = pattern3[1];
-  }
+    // Use AI's prompt but ensure it has required elements
+    const userMessages = messages.filter(m => m.role === 'user');
+    let finalPrompt = aiPrompt;
 
-  if (finalPrompt) {
-    // Clean up the prompt
-    finalPrompt = finalPrompt
-      .replace(/\\n/g, ' ')
-      .replace(/\\"/g, '"')
-      .replace(/`/g, '')
-      .trim();
+    // If AI forgot something, supplement with our builder
+    if (userMessages.length >= 4) {
+      const textRequest = userMessages[3]?.content || '';
+      const wantsText = textRequest && !/^(no|none|clean|nope|skip|nothing)$/i.test(textRequest.trim());
 
-    // Extract reply (everything before any prompt-related content)
-    let reply = aiMessage
-      .replace(/```prompt[\s\S]*$/i, '')
-      .replace(/\{[\s\S]*"prompt"[\s\S]*\}[\s\S]*$/i, '')
-      .trim();
-
-    // If no reply extracted, use a default
-    if (!reply || reply.includes('"prompt"')) {
-      reply = "Perfect, creating that for you now!";
+      // Check if text was requested but not in prompt
+      if (wantsText && !aiPrompt.toLowerCase().includes(textRequest.toLowerCase())) {
+        finalPrompt = aiPrompt.replace(/,?\s*(high quality|beautiful composition).*$/i, '') +
+          `, with large decorative text displaying "${textRequest.toUpperCase()}" prominently, high quality, beautiful composition`;
+      }
     }
 
     return NextResponse.json({
       success: true,
+      data: { reply, finalPrompt }
+    });
+  }
+
+  // Check for JSON format (legacy)
+  const jsonMatch = aiMessage.match(/\{\s*"prompt"\s*:\s*"([\s\S]*?)"\s*\}/);
+  if (jsonMatch) {
+    const reply = aiMessage.replace(/\{[\s\S]*"prompt"[\s\S]*\}[\s\S]*$/i, '').trim() || "Creating now!";
+    return NextResponse.json({
+      success: true,
+      data: { reply, finalPrompt: jsonMatch[1] }
+    });
+  }
+
+  // Check if AI is ready but didn't format properly
+  const isReady = /creating|let me create|love it/i.test(aiMessage) &&
+                  messages.filter(m => m.role === 'user').length >= 4;
+
+  if (isReady) {
+    const userMessages = messages.filter(m => m.role === 'user');
+    const originalRequest = userMessages[0]?.content || '';
+    const moodVibe = userMessages[1]?.content || '';
+    const style = userMessages[2]?.content || '';
+    const textRequest = userMessages[3]?.content || '';
+    const finalPrompt = buildPromptFromConversation(originalRequest, moodVibe, style, textRequest);
+
+    return NextResponse.json({
+      success: true,
       data: {
-        reply,
+        reply: aiMessage.split('\n')[0] || "Creating now!",
         finalPrompt,
       }
     });
@@ -195,32 +191,40 @@ function processAIResponse(aiMessage: string, messages: ConversationMessage[]) {
   });
 }
 
-function buildFallbackPrompt(messages: ConversationMessage[]): string {
-  const userMessages = messages.filter(m => m.role === 'user').map(m => m.content);
-  const combined = userMessages.join(', ').toLowerCase();
-
-  // Detect mood hints and enhance accordingly
-  const isMoody = /dark|moody|mysterious|night|deep|shadow/i.test(combined);
-  const isDreamy = /dream|soft|ethereal|gentle|peaceful|calm|serene/i.test(combined);
-  const isBold = /bold|vibrant|bright|energetic|neon|pop/i.test(combined);
-
-  let styleEnhancement = 'artistic rendering with rich detail';
-  let lightingEnhancement = 'beautiful natural lighting';
-  let moodEnhancement = 'visually captivating atmosphere';
-
-  if (isMoody) {
-    styleEnhancement = 'cinematic style with deep shadows and rich contrast';
-    lightingEnhancement = 'dramatic low-key lighting with subtle highlights';
-    moodEnhancement = 'mysterious and contemplative mood';
-  } else if (isDreamy) {
-    styleEnhancement = 'soft painterly style with gentle gradients';
-    lightingEnhancement = 'soft diffused golden hour light';
-    moodEnhancement = 'peaceful and ethereal atmosphere';
-  } else if (isBold) {
-    styleEnhancement = 'vivid high-contrast style with saturated colors';
-    lightingEnhancement = 'bright dynamic lighting with bold shadows';
-    moodEnhancement = 'energetic and striking visual impact';
+function buildPromptFromConversation(original: string, mood: string, style: string, text: string): string {
+  // Determine style description
+  let styleDesc = 'artistic style';
+  if (/photo|real|realistic/i.test(style)) {
+    styleDesc = 'photorealistic style, highly detailed photograph';
+  } else if (/paint|painted|oil|watercolor/i.test(style)) {
+    styleDesc = 'painted artistic style, visible brushstrokes, painterly quality';
+  } else if (/illustrat|cartoon|anime|drawn/i.test(style)) {
+    styleDesc = 'illustrated style, artistic illustration';
+  } else if (/stylized/i.test(style)) {
+    styleDesc = 'stylized artistic rendering';
   }
 
-  return `A phone wallpaper, vertical 9:16 aspect ratio, ${combined}, ${styleEnhancement}, ${lightingEnhancement}, ${moodEnhancement}, beautiful composition with balanced elements, fine details and textures. High quality, visually striking. Safe for all audiences.`;
+  // Determine mood description
+  let moodDesc = mood.toLowerCase();
+  if (/romantic|passion|love|intimate/i.test(mood)) {
+    moodDesc = 'romantic and passionate atmosphere, warm intimate mood';
+  } else if (/peaceful|calm|serene|relax/i.test(mood)) {
+    moodDesc = 'peaceful and serene atmosphere, calming mood';
+  } else if (/energetic|lively|vibrant|fun/i.test(mood)) {
+    moodDesc = 'lively and energetic atmosphere, vibrant mood';
+  } else if (/dark|moody|mysterious/i.test(mood)) {
+    moodDesc = 'dark and mysterious atmosphere, moody lighting';
+  } else if (/magical|mystical|dream/i.test(mood)) {
+    moodDesc = 'magical and mystical atmosphere, dreamy quality';
+  }
+
+  // Build text instruction if user wants text
+  let textInstruction = '';
+  const wantsText = text && !/^(no|none|clean|nope|skip|nothing)$/i.test(text.trim());
+  if (wantsText) {
+    textInstruction = `. Include decorative text "${text.toUpperCase()}" sized to fit completely within the image width`;
+  }
+
+  return `Create a phone wallpaper image in 9:16 vertical aspect ratio. Scene: ${original}. Style: ${styleDesc}. Mood: ${moodDesc}${textInstruction}. Make it beautiful, high quality, and visually striking.`;
 }
+

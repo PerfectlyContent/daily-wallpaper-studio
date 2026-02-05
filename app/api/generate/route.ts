@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { buildPromptWithNegative, getApiForStyle } from '../../../lib/prompt-builder';
+import { buildPromptWithNegative } from '../../../lib/prompt-builder';
 import { generateImage, createThumbnail } from '../../../lib/image-api';
 import { canGenerate, incrementGenerationCount } from '../../../lib/daily-limit';
 import { createServerClient } from '../../../lib/supabase';
@@ -10,7 +10,12 @@ import { hashPrompt, getCachedImage, cacheImage } from '../../../lib/image-cache
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { selections } = body as { selections: WallpaperSelections };
+
+    // Debug: Log the entire body to see what's being received
+    console.log('=== GENERATE API CALLED ===');
+    console.log('Full body received:', JSON.stringify(body, null, 2));
+
+    const { selections, skipCache } = body as { selections: WallpaperSelections; skipCache?: boolean };
 
     // Validate selections
     if (!selections || !selections.styleUniverse) {
@@ -54,27 +59,32 @@ export async function POST(request: NextRequest) {
     const { prompt } = promptData;
 
     // Check cache first - same prompt = same image (cost optimization)
+    // Skip cache if explicitly requested (for regenerations)
     const promptHash = hashPrompt(prompt);
-    const cached = getCachedImage(promptHash);
 
-    if (cached) {
-      console.log('Cache hit! Serving cached image');
-      // Still count against daily limit for fairness
-      await incrementGenerationCount(userId);
+    console.log('skipCache value:', skipCache, 'type:', typeof skipCache);
 
-      return NextResponse.json<GenerateResponse>({
-        success: true,
-        imageUrl: cached.imageUrl,
-        thumbnailBase64: cached.thumbnailBase64,
-        promptSent: prompt,
-      });
+    if (skipCache === true) {
+      console.log('SKIPPING CACHE - Regeneration requested');
+    } else {
+      const cached = getCachedImage(promptHash);
+
+      if (cached) {
+        console.log('Cache hit! Serving cached image');
+        // Still count against daily limit for fairness
+        await incrementGenerationCount(userId);
+
+        return NextResponse.json<GenerateResponse>({
+          success: true,
+          imageUrl: cached.imageUrl,
+          thumbnailBase64: cached.thumbnailBase64,
+          promptSent: prompt,
+        });
+      }
     }
 
-    // Determine which API to use
-    const useOpenAI = getApiForStyle(selections.styleUniverse) === 'openai';
-
     // Generate the image
-    const result = await generateImage(prompt, useOpenAI);
+    const result = await generateImage(prompt);
 
     if (!result.success || !result.imageUrl) {
       return NextResponse.json<GenerateResponse>(

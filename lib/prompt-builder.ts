@@ -100,10 +100,22 @@ function buildCustomPrompt(
   timeId?: string,
   vibeId?: string
 ): string {
-  // Clean and sanitize user input
-  const cleanedDescription = sanitizeUserInput(userDescription);
+  // Check if this is already a complete AI-generated prompt (from conversation flow)
+  // These prompts already have quality instructions, so don't over-process them
+  const isCompletePrompt = userDescription.toLowerCase().includes('high quality') ||
+                           userDescription.toLowerCase().includes('beautiful composition') ||
+                           userDescription.length > 200;
 
-  // Enhance the user's simple input into a professional prompt
+  if (isCompletePrompt) {
+    // Just do basic safety sanitization, keep the prompt intact
+    const safePrompt = userDescription
+      .replace(/[<>{}[\]|\\^`]/g, '')
+      .trim();
+    return safePrompt;
+  }
+
+  // For short user inputs, enhance them
+  const cleanedDescription = sanitizeUserInput(userDescription);
   const enhancedPrompt = enhanceUserPrompt(cleanedDescription);
 
   // Build optional modifiers

@@ -1,7 +1,7 @@
 /**
  * Image Generation API
- * Primary: Replicate FLUX Schnell ($0.003/image) - reliable and fast
- * Custom mode: OpenAI DALL-E 3 (better for custom prompts)
+ * Uses Gemini 2.5 Flash Image (nano-banana) for image generation (~$0.039/image)
+ * No fallbacks - graceful error handling only
  */
 
 export interface GenerationResult {
@@ -11,154 +11,88 @@ export interface GenerationResult {
 }
 
 /**
- * FLUX Schnell Configuration
- * Optimized for 4 steps - this is what the model is designed for
- * Single image per request for cost efficiency
+ * Generates an image using Google Gemini 2.5 Flash Image (nano-banana)
+ * Cost: ~$0.039 per image
  */
-const FLUX_CONFIG = {
-  num_inference_steps: 4,  // Schnell is optimized for 4 steps
-  num_outputs: 1,          // Single image, no variants
-  aspect_ratio: '9:16',    // Phone wallpaper format
-  output_format: 'webp',   // Smaller file size, good quality
-  output_quality: 85,      // Good balance of quality/size
-  go_fast: true,           // Use optimizations
-};
-
-/**
- * Generates an image using Replicate FLUX Schnell
- * Cost: ~$0.003 per image - fast and reliable
- * Uses 4 steps as Schnell is specifically designed for this
- */
-export async function generateWithReplicate(
-  prompt: string,
-  seed?: number
-): Promise<GenerationResult> {
-  const apiToken = process.env.REPLICATE_API_TOKEN;
-
-  if (!apiToken) {
-    return { success: false, error: 'Replicate API token not configured' };
-  }
-
-  try {
-    const Replicate = (await import('replicate')).default;
-    const replicate = new Replicate({ auth: apiToken });
-
-    console.log('Generating with FLUX Schnell (4 steps)...');
-    console.log('Prompt:', prompt.substring(0, 100) + '...');
-
-    const input: Record<string, unknown> = {
-      prompt: prompt,
-      ...FLUX_CONFIG,
-    };
-
-    // Use fixed seed if provided (for reproducible results)
-    if (seed !== undefined) {
-      input.seed = seed;
-    }
-
-    const output = await replicate.run(
-      'black-forest-labs/flux-schnell',
-      { input }
-    );
-
-    const imageUrl = Array.isArray(output) ? output[0] : output;
-
-    if (!imageUrl) {
-      return { success: false, error: 'No image generated' };
-    }
-
-    console.log('FLUX Schnell generation successful!');
-    return { success: true, imageUrl: imageUrl as string };
-  } catch (error) {
-    console.error('FLUX Schnell generation error:', error);
-    const msg = error instanceof Error ? error.message : String(error);
-    // Detect rate limit / insufficient credit errors
-    if (msg.includes('429') || msg.includes('throttled') || msg.includes('rate limit')) {
-      return { success: false, error: 'Rate limited — please wait a moment and try again.' };
-    }
-    return {
-      success: false,
-      error: 'Image generation failed. Please try again.',
-    };
-  }
-}
-
-/**
- * Generates an image using OpenAI DALL-E 3
- * Better for custom prompts and complex descriptions
- * Cost: ~$0.04 per image
- */
-export async function generateWithOpenAI(
-  prompt: string
-): Promise<GenerationResult> {
-  const apiKey = process.env.OPENAI_API_KEY;
+export async function generateImage(prompt: string): Promise<GenerationResult> {
+  const apiKey = process.env.GOOGLE_AI_API_KEY;
 
   if (!apiKey) {
-    console.error('OpenAI API key not configured');
-    return { success: false, error: 'OpenAI API key not configured' };
+    return {
+      success: false,
+      error: 'Image generation is not configured. Please contact support.'
+    };
   }
 
   try {
-    console.log('Generating with OpenAI DALL-E 3...');
-    console.log('Prompt:', prompt.substring(0, 100) + '...');
+    console.log('Generating with Gemini 2.5 Flash Image...');
+    console.log('Prompt:', prompt);
 
-    const OpenAI = (await import('openai')).default;
-    const openai = new OpenAI({ apiKey });
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(apiKey);
 
-    const response = await openai.images.generate({
-      model: 'dall-e-3',
-      prompt: prompt,
-      n: 1,
-      size: '1024x1792',
-      quality: 'standard',
-      style: 'vivid',
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash-image',
+      generationConfig: {
+        responseModalities: ['Text', 'Image'],
+        imageConfig: {
+          aspectRatio: '9:16',
+        },
+      } as any,
     });
 
-    const imageUrl = response.data?.[0]?.url;
+    const response = await model.generateContent(prompt);
+    const result = response.response;
 
-    if (!imageUrl) {
-      return { success: false, error: 'No image generated' };
+    console.log('Gemini response received, checking for image...');
+
+    // Extract image from response
+    for (const part of result.candidates?.[0]?.content?.parts || []) {
+      if ((part as any).inlineData) {
+        const imageData = (part as any).inlineData.data;
+        const mimeType = (part as any).inlineData.mimeType || 'image/png';
+        const dataUrl = `data:${mimeType};base64,${imageData}`;
+
+        console.log('Gemini generation successful!');
+        return { success: true, imageUrl: dataUrl };
+      }
     }
 
-    console.log('OpenAI generation successful!');
-    return { success: true, imageUrl };
-  } catch (error) {
-    console.error('OpenAI generation error:', error);
+    // Check if there's text explaining why no image
+    const textPart = result.candidates?.[0]?.content?.parts?.find((p: any) => p.text);
+    if (textPart) {
+      console.log('Gemini returned text instead of image:', (textPart as any).text);
+    }
+
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Image generation failed',
+      error: 'Could not generate image. Please try a different description.'
+    };
+  } catch (error) {
+    console.error('Gemini generation error:', error);
+    const msg = error instanceof Error ? error.message : String(error);
+
+    if (msg.includes('429') || msg.includes('quota') || msg.includes('rate')) {
+      return {
+        success: false,
+        error: 'Too many requests. Please wait a moment and try again.'
+      };
+    }
+
+    if (msg.includes('safety') || msg.includes('blocked')) {
+      return {
+        success: false,
+        error: 'Your request could not be processed. Please try a different description.'
+      };
+    }
+
+    return {
+      success: false,
+      error: 'Something went wrong. Please try again.',
     };
   }
 }
 
-/**
- * Main generation function
- * Uses Replicate for template styles (fast, cheap)
- * Uses OpenAI for custom mode (better quality for custom prompts)
- */
-export async function generateImage(
-  prompt: string,
-  useOpenAI: boolean = false
-): Promise<GenerationResult> {
-  console.log('=== Starting image generation ===');
-  console.log('Use OpenAI:', useOpenAI);
-
-  // Use OpenAI for custom mode
-  if (useOpenAI) {
-    const result = await generateWithOpenAI(prompt);
-
-    // If OpenAI fails, try Replicate as fallback
-    if (!result.success) {
-      console.log('OpenAI failed, trying Replicate as fallback...');
-      return generateWithReplicate(prompt);
-    }
-
-    return result;
-  }
-
-  // Use Replicate for template styles (fast, cheap, reliable)
-  return generateWithReplicate(prompt);
-}
 
 /**
  * Creates a base64 thumbnail from an image URL
