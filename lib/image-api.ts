@@ -25,41 +25,40 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
   }
 
   try {
-    console.log('Generating with Imagen 3...');
+    console.log('Generating with Gemini 2.5 Flash Image...');
     console.log('Prompt:', prompt);
 
-    // Use Imagen 3 API directly
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          instances: [{ prompt }],
-          parameters: {
-            sampleCount: 1,
-            aspectRatio: '9:16',
-            personGeneration: 'dont_allow',
-          },
-        }),
-      }
-    );
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(apiKey);
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error('Imagen API error:', response.status, errorData);
-      throw new Error(errorData.error?.message || `API error: ${response.status}`);
-    }
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash-image',
+      generationConfig: {
+        responseModalities: ['Image'],
+      } as any,
+    });
 
-    const data = await response.json();
-    console.log('Imagen response received');
+    const response = await model.generateContent(prompt);
+    const result = response.response;
+
+    console.log('Gemini response received, checking for image...');
 
     // Extract image from response
-    const prediction = data.predictions?.[0];
-    if (prediction?.bytesBase64Encoded) {
-      const dataUrl = `data:image/png;base64,${prediction.bytesBase64Encoded}`;
-      console.log('Imagen generation successful!');
-      return { success: true, imageUrl: dataUrl };
+    for (const part of result.candidates?.[0]?.content?.parts || []) {
+      if ((part as any).inlineData) {
+        const imageData = (part as any).inlineData.data;
+        const mimeType = (part as any).inlineData.mimeType || 'image/png';
+        const dataUrl = `data:${mimeType};base64,${imageData}`;
+
+        console.log('Gemini generation successful!');
+        return { success: true, imageUrl: dataUrl };
+      }
+    }
+
+    // Check if there's text explaining why no image
+    const textPart = result.candidates?.[0]?.content?.parts?.find((p: any) => p.text);
+    if (textPart) {
+      console.log('Gemini returned text instead of image:', (textPart as any).text);
     }
 
     return {
