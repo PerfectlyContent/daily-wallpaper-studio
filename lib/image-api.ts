@@ -15,7 +15,7 @@ export interface GenerationResult {
  * Cost: ~$0.039 per image
  */
 export async function generateImage(prompt: string): Promise<GenerationResult> {
-  const apiKey = process.env.GOOGLE_AI_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 
   if (!apiKey) {
     return {

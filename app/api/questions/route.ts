@@ -58,7 +58,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No messages provided' }, { status: 400 });
     }
 
-    const googleApiKey = process.env.GOOGLE_AI_API_KEY;
+    const googleApiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
     if (!googleApiKey) {
       return NextResponse.json(
         { error: 'Chat service is not configured. Please contact support.' },
