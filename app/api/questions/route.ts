@@ -14,43 +14,26 @@ interface ConversationMessage {
  * response with the final prompt.
  */
 
-const SYSTEM_PROMPT = `You are "Studio", a creative wallpaper design assistant. You help people design beautiful phone wallpapers through a natural, fun conversation.
+const SYSTEM_PROMPT = `You're Studio, a wallpaper designer. Chat casually.
 
-Your personality: You're a friend who happens to be an incredible visual designer. You're warm, creative, and perceptive. You pick up on subtle cues in what people say and build on them. You speak naturally — short sentences, casual tone, like texting a creative friend.
+RULES:
+- MAX 2 sentences per reply
+- Ask ONE question per message
 
-HOW THE CONVERSATION WORKS:
-- The user tells you what they want (could be vague like "something chill" or specific like "a neon cyberpunk city")
-- You have a real conversation. React to what they say. Share your own creative ideas. Ask follow-up questions when something is unclear or when you want to explore a direction further.
-- The conversation can be as short as 1-2 exchanges or as long as 5-6 — whatever feels natural. Don't rush it, but don't drag it out either.
-- When you feel you have a vivid enough picture to create something amazing, tell the user you're ready and include the prompt.
+FLOW:
+1. React + ask about mood/vibe
+2. React + ask about style (photo/illustrated/painted)
+3. React + ask "Want any text on it?"
+4. Say something short like "Love it!" then on THE NEXT LINE output EXACTLY:
+{"prompt": "your detailed prompt here"}
 
-WHEN YOU'RE READY TO GENERATE:
-When you have enough detail to create a stunning wallpaper, end your message with a JSON block like this:
+IF USER WANTS TEXT: Include "with bold text reading 'THEIR_TEXT' prominently displayed"
 
-\`\`\`prompt
-{"prompt": "your detailed image generation prompt here"}
-\`\`\`
+STEP 4 EXAMPLE:
+Love it, creating now!
+{"prompt": "A phone wallpaper, 9:16 aspect ratio, cute lamp with funny face, whimsical painted style, soft pastels, with bold text reading 'GAIA' prominently displayed, warm cozy lighting. High quality, visually striking."}
 
-The prompt should be a rich, detailed description for an AI image generator. Include:
-- Subject matter and scene
-- Art style (photographic, illustrated, abstract, painted, etc.)
-- Color palette specifics
-- Mood and atmosphere
-- Composition details
-- Lighting
-
-Always prefix the prompt with "A phone wallpaper, vertical 9:16 aspect ratio, " and end with ". High quality, beautiful composition, visually striking. Safe for all audiences."
-
-CONVERSATION RULES:
-- Keep each response to 1-3 short sentences
-- Be specific and creative — don't ask generic questions like "what colors do you want?"
-- Instead of listing options, suggest something specific and ask if they like that direction
-- React genuinely to what they say — show enthusiasm, build on their ideas
-- If they give you a lot of detail upfront, you might be ready after just one exchange
-- If they're vague, explore more before generating
-- NEVER use bullet points, numbered lists, or formal formatting
-- Match your energy to theirs — moody request = moody tone, fun request = fun tone
-- You're co-creating with them, not interviewing them`;
+CRITICAL: On step 4, your response MUST end with a JSON object containing "prompt". No code blocks, just the raw JSON on its own line.`;
 
 export async function POST(request: Request) {
   try {
@@ -61,76 +44,39 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'No messages provided' }, { status: 400 });
     }
 
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      // Fallback: no API key available
-      return NextResponse.json({
-        success: true,
-        data: {
-          reply: "I love that idea! I'm picturing something really beautiful. Let me create it for you.",
-          finalPrompt: buildFallbackPrompt(messages),
-        }
-      });
-    }
+    // Try Cloudflare Workers AI first (FREE!)
+    const cfAccountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+    const cfApiToken = process.env.CLOUDFLARE_API_TOKEN;
 
-    try {
-      const OpenAI = (await import('openai')).default;
-      const openai = new OpenAI({ apiKey });
-
-      const chatMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
-        { role: 'system', content: SYSTEM_PROMPT },
-        ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
-      ];
-
-      const completion = await openai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: chatMessages,
-        max_tokens: 300,
-        temperature: 0.85,
-      });
-
-      const aiMessage = completion.choices[0]?.message?.content?.trim() || '';
-
-      // Check if the AI included a prompt block (meaning it's ready to generate)
-      const promptMatch = aiMessage.match(/```prompt\s*\n?\{[\s\S]*?"prompt"\s*:\s*"([\s\S]*?)"\s*\}\s*\n?```/);
-
-      if (promptMatch) {
-        // Extract the reply text (everything before the prompt block)
-        const reply = aiMessage.replace(/```prompt[\s\S]*?```/, '').trim();
-        const finalPrompt = promptMatch[1]
-          .replace(/\\n/g, ' ')
-          .replace(/\\"/g, '"')
-          .trim();
-
-        return NextResponse.json({
-          success: true,
-          data: {
-            reply: reply || "Perfect — I can see it clearly now. Let me bring this to life.",
-            finalPrompt,
-          }
-        });
+    if (cfAccountId && cfApiToken) {
+      try {
+        const aiMessage = await callCloudflareAI(cfAccountId, cfApiToken, messages);
+        return processAIResponse(aiMessage, messages);
+      } catch (err) {
+        console.error('Cloudflare AI error:', err);
+        // Fall through to OpenAI or fallback
       }
-
-      // Not ready yet — just a conversational response
-      return NextResponse.json({
-        success: true,
-        data: {
-          reply: aiMessage,
-          finalPrompt: null,
-        }
-      });
-
-    } catch (err) {
-      console.error('OpenAI chat error:', err);
-      // Fallback on API error
-      return NextResponse.json({
-        success: true,
-        data: {
-          reply: "That sounds amazing — let me create something beautiful based on what you've told me.",
-          finalPrompt: buildFallbackPrompt(messages),
-        }
-      });
     }
+
+    // Try OpenAI as backup
+    const openaiKey = process.env.OPENAI_API_KEY;
+    if (openaiKey) {
+      try {
+        const aiMessage = await callOpenAI(openaiKey, messages);
+        return processAIResponse(aiMessage, messages);
+      } catch (err) {
+        console.error('OpenAI chat error:', err);
+      }
+    }
+
+    // Final fallback
+    return NextResponse.json({
+      success: true,
+      data: {
+        reply: "I love that idea! I'm picturing something really beautiful. Let me create it for you.",
+        finalPrompt: buildFallbackPrompt(messages),
+      }
+    });
 
   } catch (error) {
     console.error('Questions API error:', error);
@@ -141,8 +87,140 @@ export async function POST(request: Request) {
   }
 }
 
+async function callCloudflareAI(accountId: string, apiToken: string, messages: ConversationMessage[]): Promise<string> {
+  const chatMessages = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    ...messages.map(m => ({ role: m.role, content: m.content })),
+  ];
+
+  const response = await fetch(
+    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/meta/llama-3.1-8b-instruct`,
+    {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        messages: chatMessages,
+        max_tokens: 350,
+        temperature: 0.7,
+      }),
+    }
+  );
+
+  if (!response.ok) {
+    throw new Error(`Cloudflare AI error: ${response.status}`);
+  }
+
+  const data = await response.json();
+  return data.result?.response?.trim() || '';
+}
+
+async function callOpenAI(apiKey: string, messages: ConversationMessage[]): Promise<string> {
+  const OpenAI = (await import('openai')).default;
+  const openai = new OpenAI({ apiKey });
+
+  const chatMessages: { role: 'system' | 'user' | 'assistant'; content: string }[] = [
+    { role: 'system', content: SYSTEM_PROMPT },
+    ...messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content })),
+  ];
+
+  const completion = await openai.chat.completions.create({
+    model: 'gpt-4o-mini',
+    messages: chatMessages,
+    max_tokens: 500,
+    temperature: 0.85,
+  });
+
+  return completion.choices[0]?.message?.content?.trim() || '';
+}
+
+function processAIResponse(aiMessage: string, messages: ConversationMessage[]) {
+  console.log('AI Response:', aiMessage); // Debug
+
+  // Try multiple regex patterns to catch various formats
+  let finalPrompt: string | null = null;
+
+  // Pattern 1: Standard ```prompt block
+  const pattern1 = aiMessage.match(/```prompt\s*\n?\{[\s\S]*?"prompt"\s*:\s*"([\s\S]*?)"\s*\}/);
+  // Pattern 2: Just {"prompt": "..."} anywhere
+  const pattern2 = aiMessage.match(/\{\s*"prompt"\s*:\s*"([\s\S]*?)"\s*\}/);
+  // Pattern 3: prompt: "..." without JSON wrapper
+  const pattern3 = aiMessage.match(/"prompt"\s*:\s*"([\s\S]*?)"/);
+
+  if (pattern1) {
+    finalPrompt = pattern1[1];
+  } else if (pattern2) {
+    finalPrompt = pattern2[1];
+  } else if (pattern3) {
+    finalPrompt = pattern3[1];
+  }
+
+  if (finalPrompt) {
+    // Clean up the prompt
+    finalPrompt = finalPrompt
+      .replace(/\\n/g, ' ')
+      .replace(/\\"/g, '"')
+      .replace(/`/g, '')
+      .trim();
+
+    // Extract reply (everything before any prompt-related content)
+    let reply = aiMessage
+      .replace(/```prompt[\s\S]*$/i, '')
+      .replace(/\{[\s\S]*"prompt"[\s\S]*\}[\s\S]*$/i, '')
+      .trim();
+
+    // If no reply extracted, use a default
+    if (!reply || reply.includes('"prompt"')) {
+      reply = "Perfect, creating that for you now!";
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: {
+        reply,
+        finalPrompt,
+      }
+    });
+  }
+
+  // Not ready yet — just a conversational response
+  return NextResponse.json({
+    success: true,
+    data: {
+      reply: aiMessage,
+      finalPrompt: null,
+    }
+  });
+}
+
 function buildFallbackPrompt(messages: ConversationMessage[]): string {
   const userMessages = messages.filter(m => m.role === 'user').map(m => m.content);
-  const combined = userMessages.join(', ');
-  return `A phone wallpaper, vertical 9:16 aspect ratio, ${combined}. High quality, beautiful composition, visually striking. Safe for all audiences.`;
+  const combined = userMessages.join(', ').toLowerCase();
+
+  // Detect mood hints and enhance accordingly
+  const isMoody = /dark|moody|mysterious|night|deep|shadow/i.test(combined);
+  const isDreamy = /dream|soft|ethereal|gentle|peaceful|calm|serene/i.test(combined);
+  const isBold = /bold|vibrant|bright|energetic|neon|pop/i.test(combined);
+
+  let styleEnhancement = 'artistic rendering with rich detail';
+  let lightingEnhancement = 'beautiful natural lighting';
+  let moodEnhancement = 'visually captivating atmosphere';
+
+  if (isMoody) {
+    styleEnhancement = 'cinematic style with deep shadows and rich contrast';
+    lightingEnhancement = 'dramatic low-key lighting with subtle highlights';
+    moodEnhancement = 'mysterious and contemplative mood';
+  } else if (isDreamy) {
+    styleEnhancement = 'soft painterly style with gentle gradients';
+    lightingEnhancement = 'soft diffused golden hour light';
+    moodEnhancement = 'peaceful and ethereal atmosphere';
+  } else if (isBold) {
+    styleEnhancement = 'vivid high-contrast style with saturated colors';
+    lightingEnhancement = 'bright dynamic lighting with bold shadows';
+    moodEnhancement = 'energetic and striking visual impact';
+  }
+
+  return `A phone wallpaper, vertical 9:16 aspect ratio, ${combined}, ${styleEnhancement}, ${lightingEnhancement}, ${moodEnhancement}, beautiful composition with balanced elements, fine details and textures. High quality, visually striking. Safe for all audiences.`;
 }
