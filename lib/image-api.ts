@@ -1,7 +1,7 @@
 /**
  * Image Generation API
- * Uses Qwen-Image-2512 via fal.ai direct API
- * Excellent text rendering for wallpapers
+ * Uses Gemini 2.5 Flash Image for image generation
+ * Free tier: ~500-1500 images/day via Google AI Studio
  */
 
 export interface GenerationResult {
@@ -11,11 +11,11 @@ export interface GenerationResult {
 }
 
 /**
- * Generates an image using Qwen-Image-2512 via fal.ai
- * Best for text rendering on wallpapers
+ * Generates an image using Gemini 2.5 Flash Image
+ * Free tier available via Google AI Studio
  */
 export async function generateImage(prompt: string): Promise<GenerationResult> {
-  const apiKey = process.env.FAL_KEY || process.env.FAL_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
 
   if (!apiKey) {
     return {
@@ -25,84 +25,55 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
   }
 
   try {
-    console.log('Generating with Qwen-Image-2512 via fal.ai...');
+    console.log('Generating with Gemini 2.5 Flash Image...');
     console.log('Prompt:', prompt);
 
-    // Add aspect ratio to prompt for 9:16 phone wallpaper
-    const enhancedPrompt = `${prompt}. Vertical 9:16 aspect ratio, phone wallpaper format, high quality, detailed.`;
+    const { GoogleGenerativeAI } = await import('@google/generative-ai');
+    const genAI = new GoogleGenerativeAI(apiKey);
 
-    // fal.ai direct API for Qwen-Image-2512
-    const response = await fetch('https://queue.fal.run/fal-ai/qwen-image-2512', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Key ${apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prompt: enhancedPrompt,
-        negative_prompt: 'blurry, low quality, distorted, cropped text, cut off text',
-        image_size: {
-          width: 720,
-          height: 1280,
-        },
-        num_images: 1,
-      }),
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash-preview-04-17',
+      generationConfig: {
+        responseModalities: ['Text', 'Image'],
+      } as any,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error('fal.ai API error:', response.status, errorText);
-      throw new Error(`API error: ${response.status} - ${errorText}`);
-    }
+    // Enhance prompt for better phone wallpaper results
+    const enhancedPrompt = `Create a beautiful phone wallpaper image. ${prompt}.
+The image MUST be in vertical 9:16 portrait orientation suitable for a phone screen.
+High quality, stunning composition, visually striking.
+If there is any text, make sure it fits completely within the image and is clearly readable.`;
 
-    const data = await response.json();
-    console.log('fal.ai response:', JSON.stringify(data, null, 2));
+    const response = await model.generateContent(enhancedPrompt);
+    const result = response.response;
 
-    // Check if we got a request_id (async queue)
-    if (data.request_id) {
-      console.log('Got queue request_id:', data.request_id, '- polling for result...');
+    console.log('Gemini response received, checking for image...');
 
-      // Poll for result
-      const maxAttempts = 60;
-      for (let i = 0; i < maxAttempts; i++) {
-        await new Promise(resolve => setTimeout(resolve, 2000));
+    // Extract image from response
+    for (const part of result.candidates?.[0]?.content?.parts || []) {
+      if ((part as any).inlineData) {
+        const imageData = (part as any).inlineData.data;
+        const mimeType = (part as any).inlineData.mimeType || 'image/png';
+        const dataUrl = `data:${mimeType};base64,${imageData}`;
 
-        const statusResponse = await fetch(`https://queue.fal.run/fal-ai/qwen-image-2512/requests/${data.request_id}/status`, {
-          headers: { 'Authorization': `Key ${apiKey}` },
-        });
-
-        const statusData = await statusResponse.json();
-        console.log(`Poll ${i + 1}/${maxAttempts}: Status =`, statusData.status);
-
-        if (statusData.status === 'COMPLETED') {
-          // Get the result
-          const resultResponse = await fetch(`https://queue.fal.run/fal-ai/qwen-image-2512/requests/${data.request_id}`, {
-            headers: { 'Authorization': `Key ${apiKey}` },
-          });
-          const resultData = await resultResponse.json();
-
-          if (resultData.images?.[0]?.url) {
-            console.log('Qwen-Image-2512 generation successful!');
-            return { success: true, imageUrl: resultData.images[0].url };
-          }
-        } else if (statusData.status === 'FAILED') {
-          throw new Error('Generation failed');
-        }
+        console.log('Gemini 2.5 Flash Image generation successful!');
+        return { success: true, imageUrl: dataUrl };
       }
-
-      return { success: false, error: 'Generation timed out. Please try again.' };
     }
 
-    // Direct response with images
-    if (data.images?.[0]?.url) {
-      console.log('Qwen-Image-2512 generation successful!');
-      return { success: true, imageUrl: data.images[0].url };
+    // Check if there's text explaining why no image
+    const textPart = result.candidates?.[0]?.content?.parts?.find((p: any) => p.text);
+    if (textPart) {
+      console.log('Gemini returned text instead of image:', (textPart as any).text);
     }
 
-    return { success: false, error: 'No image returned' };
+    return {
+      success: false,
+      error: 'Could not generate image. Please try a different description.'
+    };
 
   } catch (error) {
-    console.error('Qwen-Image-2512 generation error:', error);
+    console.error('Gemini generation error:', error);
     const msg = error instanceof Error ? error.message : String(error);
 
     if (msg.includes('429') || msg.includes('quota') || msg.includes('rate')) {
@@ -112,10 +83,17 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
       };
     }
 
-    if (msg.includes('safety') || msg.includes('blocked') || msg.includes('sensitive')) {
+    if (msg.includes('safety') || msg.includes('blocked')) {
       return {
         success: false,
         error: 'Your request could not be processed. Please try a different description.'
+      };
+    }
+
+    if (msg.includes('not found') || msg.includes('404')) {
+      return {
+        success: false,
+        error: 'Image generation model not available. Please try again later.'
       };
     }
 
