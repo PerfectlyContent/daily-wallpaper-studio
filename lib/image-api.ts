@@ -1,7 +1,7 @@
 /**
  * Image Generation API
- * Uses Qwen-Image via Hugging Face Inference API
- * Excellent text rendering for wallpapers with names/text
+ * Uses Qwen-Image-2512 via Hugging Face + fal-ai provider
+ * Excellent text rendering for wallpapers
  */
 
 export interface GenerationResult {
@@ -11,8 +11,8 @@ export interface GenerationResult {
 }
 
 /**
- * Generates an image using Qwen-Image via Hugging Face
- * Best open-source image model with excellent text rendering
+ * Generates an image using Qwen-Image-2512 via fal-ai provider
+ * Best for text rendering on wallpapers
  */
 export async function generateImage(prompt: string): Promise<GenerationResult> {
   const apiKey = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY;
@@ -25,14 +25,14 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
   }
 
   try {
-    console.log('Generating with Qwen-Image via Hugging Face...');
+    console.log('Generating with Qwen-Image-2512 via fal-ai...');
     console.log('Prompt:', prompt);
 
     // Add aspect ratio to prompt for 9:16 phone wallpaper
-    const enhancedPrompt = `${prompt}. Vertical 9:16 aspect ratio, phone wallpaper format, high quality.`;
+    const enhancedPrompt = `${prompt}. Vertical 9:16 aspect ratio, phone wallpaper format, high quality, detailed.`;
 
-    // Hugging Face Inference API (new router endpoint)
-    const response = await fetch('https://router.huggingface.co/models/Qwen/Qwen-Image', {
+    // Hugging Face Inference API via fal-ai provider for Qwen-Image-2512
+    const response = await fetch('https://router.huggingface.co/fal-ai/Qwen/Qwen-Image-2512', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -41,7 +41,6 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
       body: JSON.stringify({
         inputs: enhancedPrompt,
         parameters: {
-          negative_prompt: 'blurry, low quality, distorted, cropped text, cut off text',
           width: 720,
           height: 1280,
         },
@@ -72,11 +71,11 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
     const contentType = response.headers.get('content-type') || 'image/png';
     const dataUrl = `data:${contentType};base64,${base64}`;
 
-    console.log('Qwen-Image generation successful!');
+    console.log('Qwen-Image-2512 generation successful!');
     return { success: true, imageUrl: dataUrl };
 
   } catch (error) {
-    console.error('Qwen-Image generation error:', error);
+    console.error('Qwen-Image-2512 generation error:', error);
     const msg = error instanceof Error ? error.message : String(error);
 
     if (msg.includes('429') || msg.includes('quota') || msg.includes('rate')) {
