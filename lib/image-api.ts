@@ -1,7 +1,7 @@
 /**
  * Image Generation API
- * Uses Gemini 2.5 Flash Image (nano-banana) for image generation (~$0.039/image)
- * No fallbacks - graceful error handling only
+ * Uses Qwen-Image via Hugging Face Inference API
+ * Excellent text rendering for wallpapers with names/text
  */
 
 export interface GenerationResult {
@@ -11,11 +11,11 @@ export interface GenerationResult {
 }
 
 /**
- * Generates an image using Google Gemini 2.5 Flash Image (nano-banana)
- * Cost: ~$0.039 per image
+ * Generates an image using Qwen-Image via Hugging Face
+ * Best open-source image model with excellent text rendering
  */
 export async function generateImage(prompt: string): Promise<GenerationResult> {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_AI_API_KEY;
+  const apiKey = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY;
 
   if (!apiKey) {
     return {
@@ -25,51 +25,58 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
   }
 
   try {
-    console.log('Generating with Gemini 2.5 Flash Image...');
+    console.log('Generating with Qwen-Image via Hugging Face...');
     console.log('Prompt:', prompt);
 
-    const { GoogleGenerativeAI } = await import('@google/generative-ai');
-    const genAI = new GoogleGenerativeAI(apiKey);
+    // Add aspect ratio to prompt for 9:16 phone wallpaper
+    const enhancedPrompt = `${prompt}. Vertical 9:16 aspect ratio, phone wallpaper format, high quality.`;
 
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-2.5-flash-image',
-      generationConfig: {
-        responseModalities: ['Image'],
-        imageGenerationConfig: {
-          aspectRatio: '9:16',
+    // Hugging Face Inference API
+    const response = await fetch('https://api-inference.huggingface.co/models/Qwen/Qwen-Image', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        inputs: enhancedPrompt,
+        parameters: {
+          negative_prompt: 'blurry, low quality, distorted, cropped text, cut off text',
+          width: 720,
+          height: 1280,
         },
-      } as any,
+      }),
     });
 
-    const response = await model.generateContent(prompt);
-    const result = response.response;
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Hugging Face API error:', response.status, errorText);
 
-    console.log('Gemini response received, checking for image...');
-
-    // Extract image from response
-    for (const part of result.candidates?.[0]?.content?.parts || []) {
-      if ((part as any).inlineData) {
-        const imageData = (part as any).inlineData.data;
-        const mimeType = (part as any).inlineData.mimeType || 'image/png';
-        const dataUrl = `data:${mimeType};base64,${imageData}`;
-
-        console.log('Gemini generation successful!');
-        return { success: true, imageUrl: dataUrl };
+      // Check if model is loading
+      if (response.status === 503) {
+        const errorData = JSON.parse(errorText);
+        if (errorData.estimated_time) {
+          console.log(`Model loading, estimated time: ${errorData.estimated_time}s`);
+          // Wait and retry once
+          await new Promise(resolve => setTimeout(resolve, Math.min(errorData.estimated_time * 1000, 30000)));
+          return generateImage(prompt); // Retry
+        }
       }
+
+      throw new Error(`API error: ${response.status} - ${errorText}`);
     }
 
-    // Check if there's text explaining why no image
-    const textPart = result.candidates?.[0]?.content?.parts?.find((p: any) => p.text);
-    if (textPart) {
-      console.log('Gemini returned text instead of image:', (textPart as any).text);
-    }
+    // Response is the image blob directly
+    const imageBuffer = await response.arrayBuffer();
+    const base64 = Buffer.from(imageBuffer).toString('base64');
+    const contentType = response.headers.get('content-type') || 'image/png';
+    const dataUrl = `data:${contentType};base64,${base64}`;
 
-    return {
-      success: false,
-      error: 'Could not generate image. Please try a different description.'
-    };
+    console.log('Qwen-Image generation successful!');
+    return { success: true, imageUrl: dataUrl };
+
   } catch (error) {
-    console.error('Gemini generation error:', error);
+    console.error('Qwen-Image generation error:', error);
     const msg = error instanceof Error ? error.message : String(error);
 
     if (msg.includes('429') || msg.includes('quota') || msg.includes('rate')) {
@@ -79,7 +86,7 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
       };
     }
 
-    if (msg.includes('safety') || msg.includes('blocked')) {
+    if (msg.includes('safety') || msg.includes('blocked') || msg.includes('sensitive')) {
       return {
         success: false,
         error: 'Your request could not be processed. Please try a different description.'
