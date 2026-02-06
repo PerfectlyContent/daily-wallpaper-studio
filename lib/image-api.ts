@@ -1,6 +1,6 @@
 /**
  * Image Generation API
- * Uses Qwen-Image-2512 via Hugging Face + fal-ai provider
+ * Uses Qwen-Image-2512 via Hugging Face + Replicate provider
  * Excellent text rendering for wallpapers
  */
 
@@ -25,14 +25,14 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
   }
 
   try {
-    console.log('Generating with Qwen-Image-2512 via fal-ai...');
+    console.log('Generating with Qwen-Image-2512 via Replicate...');
     console.log('Prompt:', prompt);
 
     // Add aspect ratio to prompt for 9:16 phone wallpaper
     const enhancedPrompt = `${prompt}. Vertical 9:16 aspect ratio, phone wallpaper format, high quality, detailed.`;
 
-    // Hugging Face Inference API via fal-ai provider for Qwen-Image-2512
-    const response = await fetch('https://router.huggingface.co/fal-ai/Qwen/Qwen-Image-2512', {
+    // Hugging Face Inference API via Replicate provider for Qwen-Image-2512
+    const response = await fetch('https://router.huggingface.co/replicate/Qwen/Qwen-Image-2512', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
