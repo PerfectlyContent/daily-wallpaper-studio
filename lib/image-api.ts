@@ -1,6 +1,6 @@
 /**
  * Image Generation API
- * Uses Qwen-Image-2512 via Hugging Face + Replicate provider
+ * Uses Qwen-Image-2512 via fal.ai direct API
  * Excellent text rendering for wallpapers
  */
 
@@ -11,11 +11,11 @@ export interface GenerationResult {
 }
 
 /**
- * Generates an image using Qwen-Image-2512 via fal-ai provider
+ * Generates an image using Qwen-Image-2512 via fal.ai
  * Best for text rendering on wallpapers
  */
 export async function generateImage(prompt: string): Promise<GenerationResult> {
-  const apiKey = process.env.HF_TOKEN || process.env.HUGGINGFACE_API_KEY;
+  const apiKey = process.env.FAL_KEY || process.env.FAL_API_KEY;
 
   if (!apiKey) {
     return {
@@ -25,54 +25,81 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
   }
 
   try {
-    console.log('Generating with Qwen-Image-2512 via Replicate...');
+    console.log('Generating with Qwen-Image-2512 via fal.ai...');
     console.log('Prompt:', prompt);
 
     // Add aspect ratio to prompt for 9:16 phone wallpaper
     const enhancedPrompt = `${prompt}. Vertical 9:16 aspect ratio, phone wallpaper format, high quality, detailed.`;
 
-    // Hugging Face Inference API via Replicate provider for Qwen-Image-2512
-    const response = await fetch('https://router.huggingface.co/replicate/Qwen/Qwen-Image-2512', {
+    // fal.ai direct API for Qwen-Image-2512
+    const response = await fetch('https://queue.fal.run/fal-ai/qwen-image-2512', {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'Authorization': `Key ${apiKey}`,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        inputs: enhancedPrompt,
-        parameters: {
+        prompt: enhancedPrompt,
+        negative_prompt: 'blurry, low quality, distorted, cropped text, cut off text',
+        image_size: {
           width: 720,
           height: 1280,
         },
+        num_images: 1,
       }),
     });
 
     if (!response.ok) {
       const errorText = await response.text();
-      console.error('Hugging Face API error:', response.status, errorText);
-
-      // Check if model is loading
-      if (response.status === 503) {
-        const errorData = JSON.parse(errorText);
-        if (errorData.estimated_time) {
-          console.log(`Model loading, estimated time: ${errorData.estimated_time}s`);
-          // Wait and retry once
-          await new Promise(resolve => setTimeout(resolve, Math.min(errorData.estimated_time * 1000, 30000)));
-          return generateImage(prompt); // Retry
-        }
-      }
-
+      console.error('fal.ai API error:', response.status, errorText);
       throw new Error(`API error: ${response.status} - ${errorText}`);
     }
 
-    // Response is the image blob directly
-    const imageBuffer = await response.arrayBuffer();
-    const base64 = Buffer.from(imageBuffer).toString('base64');
-    const contentType = response.headers.get('content-type') || 'image/png';
-    const dataUrl = `data:${contentType};base64,${base64}`;
+    const data = await response.json();
+    console.log('fal.ai response:', JSON.stringify(data, null, 2));
 
-    console.log('Qwen-Image-2512 generation successful!');
-    return { success: true, imageUrl: dataUrl };
+    // Check if we got a request_id (async queue)
+    if (data.request_id) {
+      console.log('Got queue request_id:', data.request_id, '- polling for result...');
+
+      // Poll for result
+      const maxAttempts = 60;
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        const statusResponse = await fetch(`https://queue.fal.run/fal-ai/qwen-image-2512/requests/${data.request_id}/status`, {
+          headers: { 'Authorization': `Key ${apiKey}` },
+        });
+
+        const statusData = await statusResponse.json();
+        console.log(`Poll ${i + 1}/${maxAttempts}: Status =`, statusData.status);
+
+        if (statusData.status === 'COMPLETED') {
+          // Get the result
+          const resultResponse = await fetch(`https://queue.fal.run/fal-ai/qwen-image-2512/requests/${data.request_id}`, {
+            headers: { 'Authorization': `Key ${apiKey}` },
+          });
+          const resultData = await resultResponse.json();
+
+          if (resultData.images?.[0]?.url) {
+            console.log('Qwen-Image-2512 generation successful!');
+            return { success: true, imageUrl: resultData.images[0].url };
+          }
+        } else if (statusData.status === 'FAILED') {
+          throw new Error('Generation failed');
+        }
+      }
+
+      return { success: false, error: 'Generation timed out. Please try again.' };
+    }
+
+    // Direct response with images
+    if (data.images?.[0]?.url) {
+      console.log('Qwen-Image-2512 generation successful!');
+      return { success: true, imageUrl: data.images[0].url };
+    }
+
+    return { success: false, error: 'No image returned' };
 
   } catch (error) {
     console.error('Qwen-Image-2512 generation error:', error);
