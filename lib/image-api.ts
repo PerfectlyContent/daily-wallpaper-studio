@@ -31,8 +31,8 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
     // Add aspect ratio to prompt for 9:16 phone wallpaper
     const enhancedPrompt = `${prompt}. Vertical 9:16 aspect ratio, phone wallpaper format, high quality.`;
 
-    // Hugging Face Inference API
-    const response = await fetch('https://api-inference.huggingface.co/models/Qwen/Qwen-Image', {
+    // Hugging Face Inference API (new router endpoint)
+    const response = await fetch('https://router.huggingface.co/models/Qwen/Qwen-Image', {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${apiKey}`,
