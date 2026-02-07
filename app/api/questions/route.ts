@@ -19,15 +19,14 @@ const SYSTEM_PROMPT = `You're Studio, a warm creative assistant who helps design
 YOUR GOAL: Have a natural 3-exchange chat to understand what they want, then create it.
 
 FLOW:
-1. They describe their idea → React genuinely (not generic "beautiful!") + ask what feeling/mood they want
-2. They answer → Nice! Ask if they want it photorealistic, illustrated, or more artistic/painterly
+1. They describe their idea → React genuinely + ask what feeling/mood they want
+2. They answer → Ask if they want it photorealistic, illustrated, or more artistic/painterly
 3. They answer → Ask if they'd like any text/words on it, or keep it image-only
 4. They answer → Say something brief like "Perfect, creating that now!" then output the prompt
 
-IMPORTANT GUIDELINES:
-- Keep responses to 1-2 SHORT sentences - don't ramble
+CHAT GUIDELINES:
+- Keep responses to 1-2 SHORT sentences
 - React to what they ACTUALLY said, not generic praise
-- Don't repeat their words back at them
 - Sound human, not like a form
 
 WHEN READY (after exchange 4), output exactly:
@@ -35,27 +34,29 @@ WHEN READY (after exchange 4), output exactly:
 
 PROMPT: [detailed image generation prompt]
 
-YOUR PROMPT MUST:
-- Preserve ALL details from their original description (don't simplify!)
-- Include the mood/feeling they specified
-- Include the style they chose
-- If text requested: "with elegant text '[THEIR TEXT]' integrated into the design"
-- Be 40-60 words, rich with visual detail
-- NOT mention aspect ratio (that's handled automatically)
+PROMPT ENGINEERING - THIS IS CRITICAL:
+Your prompt MUST be 60-100 words and include ALL of these elements:
 
-EXAMPLE CONVERSATION:
+1. SCENE: Preserve EVERY detail from their original description - don't simplify!
+2. STYLE: Add technical style terms:
+   - Photorealistic: "ultra-detailed photograph, DSLR quality, sharp focus, professional photography"
+   - Illustrated: "digital illustration, clean linework, vibrant colors, artstation quality"
+   - Painted: "oil painting style, visible brushstrokes, rich textures, fine art quality"
+3. LIGHTING: Always specify lighting ("golden hour sunlight", "soft diffused light", "dramatic rim lighting", "ethereal glow")
+4. COLOR PALETTE: Mention specific colors that fit the mood
+5. ATMOSPHERE: Add atmosphere words ("misty", "dreamy haze", "crisp clarity", "soft bokeh background")
+6. COMPOSITION: Add composition guidance ("centered subject", "rule of thirds", "dynamic angle")
+7. TEXT (if requested): "with elegant decorative text '[TEXT]' prominently displayed and fully visible"
+8. QUALITY: End with "masterpiece quality, stunning detail, beautiful composition"
+
+EXAMPLE:
 User: "my daughter Ella playing in autumn leaves"
-You: "Love that! Should it feel cozy and warm, playful and energetic, or more magical/dreamy?"
-User: "magical"
-You: "Ooh nice choice. Want it photorealistic like a photo, or more illustrated/artistic?"
-User: "illustrated"
-You: "Last thing - any text you want on it, or just the image?"
-User: "My Ella"
-You: "Perfect, creating that now!
+→ mood: magical → style: illustrated → text: "My Ella"
 
-PROMPT: A young girl named Ella joyfully playing in a swirl of golden autumn leaves, magical illustrated style with soft glowing light particles, enchanted forest atmosphere, warm amber and orange tones, whimsical fairy-tale quality, with elegant text 'My Ella' integrated into the design, dreamy ethereal mood"
+PROMPT: A joyful young girl named Ella playing in a magical swirl of autumn leaves, whimsical digital illustration style with soft glowing particles and fairy-tale charm, warm golden hour lighting filtering through trees, rich palette of amber orange crimson and gold, dreamy ethereal atmosphere with soft bokeh, centered composition with leaves dancing around her, with elegant decorative text 'My Ella' prominently displayed and fully visible, masterpiece quality, stunning detail, beautiful composition
 
-Remember: Sound like a real person, not a chatbot reading a script.`;
+Notice: 80+ words, specific lighting, colors, atmosphere, composition, style terms, quality keywords.`;
+
 
 export async function POST(request: Request) {
   try {
@@ -200,39 +201,68 @@ function processAIResponse(aiMessage: string, messages: ConversationMessage[]) {
 }
 
 function buildPromptFromConversation(original: string, mood: string, style: string, text: string): string {
-  // Determine style description
-  let styleDesc = 'artistic style';
+  // Rich style descriptions with technical terms
+  let styleDesc = 'artistic digital art style, professional quality';
+  let lightingDesc = 'beautiful natural lighting';
+
   if (/photo|real|realistic/i.test(style)) {
-    styleDesc = 'photorealistic style, highly detailed photograph';
+    styleDesc = 'ultra-detailed photorealistic style, DSLR photograph quality, sharp focus, professional photography, hyperrealistic';
+    lightingDesc = 'cinematic lighting with natural shadows';
   } else if (/paint|painted|oil|watercolor/i.test(style)) {
-    styleDesc = 'painted artistic style, visible brushstrokes, painterly quality';
+    styleDesc = 'fine art oil painting style, visible expressive brushstrokes, rich canvas textures, museum quality artwork';
+    lightingDesc = 'soft dramatic lighting with painterly color blending';
   } else if (/illustrat|cartoon|anime|drawn/i.test(style)) {
-    styleDesc = 'illustrated style, artistic illustration';
-  } else if (/stylized/i.test(style)) {
-    styleDesc = 'stylized artistic rendering';
+    styleDesc = 'polished digital illustration, clean refined linework, vibrant saturated colors, artstation trending quality';
+    lightingDesc = 'stylized lighting with soft gradients';
+  } else if (/stylized|artistic/i.test(style)) {
+    styleDesc = 'stylized artistic rendering, creative interpretation, unique visual aesthetic';
+    lightingDesc = 'artistic dramatic lighting';
   }
 
-  // Determine mood description
+  // Rich mood descriptions with atmosphere, colors, and lighting
   let moodDesc = mood.toLowerCase();
+  let colorPalette = 'harmonious color palette';
+  let atmosphere = 'captivating atmosphere';
+
   if (/romantic|passion|love|intimate/i.test(mood)) {
-    moodDesc = 'romantic and passionate atmosphere, warm intimate mood';
+    moodDesc = 'deeply romantic and passionate mood';
+    colorPalette = 'warm rose gold, soft pinks, deep reds, and golden amber tones';
+    atmosphere = 'intimate dreamy atmosphere with soft bokeh';
+    lightingDesc = 'warm golden hour sunlight with gentle lens flare';
   } else if (/peaceful|calm|serene|relax/i.test(mood)) {
-    moodDesc = 'peaceful and serene atmosphere, calming mood';
-  } else if (/energetic|lively|vibrant|fun/i.test(mood)) {
-    moodDesc = 'lively and energetic atmosphere, vibrant mood';
-  } else if (/dark|moody|mysterious/i.test(mood)) {
-    moodDesc = 'dark and mysterious atmosphere, moody lighting';
-  } else if (/magical|mystical|dream/i.test(mood)) {
-    moodDesc = 'magical and mystical atmosphere, dreamy quality';
+    moodDesc = 'peaceful and serene tranquil mood';
+    colorPalette = 'soft pastels, gentle blues, sage greens, and cream whites';
+    atmosphere = 'calm meditative atmosphere with soft diffused haze';
+    lightingDesc = 'soft diffused natural light, gentle shadows';
+  } else if (/energetic|lively|vibrant|fun|playful/i.test(mood)) {
+    moodDesc = 'lively energetic and joyful mood';
+    colorPalette = 'bold vibrant colors, electric blues, hot pinks, sunny yellows';
+    atmosphere = 'dynamic exciting atmosphere with sense of movement';
+    lightingDesc = 'bright vivid lighting with punchy contrast';
+  } else if (/dark|moody|mysterious|gothic/i.test(mood)) {
+    moodDesc = 'dark mysterious and atmospheric mood';
+    colorPalette = 'deep blacks, midnight blues, rich purples, subtle gold accents';
+    atmosphere = 'enigmatic moody atmosphere with dramatic shadows';
+    lightingDesc = 'dramatic chiaroscuro lighting, deep shadows with rim light';
+  } else if (/magical|mystical|dream|fantasy|enchant/i.test(mood)) {
+    moodDesc = 'magical enchanting fairy-tale mood';
+    colorPalette = 'ethereal purples, shimmering golds, soft teals, iridescent highlights';
+    atmosphere = 'mystical dreamy atmosphere with glowing particles and soft sparkles';
+    lightingDesc = 'ethereal magical glow with soft light rays';
+  } else if (/cozy|warm|comfort/i.test(mood)) {
+    moodDesc = 'cozy warm and comforting mood';
+    colorPalette = 'warm browns, soft oranges, creamy whites, honey gold';
+    atmosphere = 'inviting comfortable atmosphere with soft warmth';
+    lightingDesc = 'warm ambient lighting like firelight or sunset';
   }
 
   // Build text instruction if user wants text
   let textInstruction = '';
   const wantsText = text && !/^(no|none|clean|nope|skip|nothing)$/i.test(text.trim());
   if (wantsText) {
-    textInstruction = `. Include decorative text "${text.toUpperCase()}" sized to fit completely within the image width`;
+    textInstruction = `, with elegant decorative text "${text}" prominently displayed and fully visible within the composition`;
   }
 
-  return `Create a phone wallpaper image in 9:16 vertical aspect ratio. Scene: ${original}. Style: ${styleDesc}. Mood: ${moodDesc}${textInstruction}. Make it beautiful, high quality, and visually striking.`;
+  return `${original}, ${styleDesc}, ${lightingDesc}, ${moodDesc}, ${colorPalette}, ${atmosphere}${textInstruction}, centered balanced composition, masterpiece quality, stunning intricate detail, beautiful artistic composition, phone wallpaper`;
 }
 
