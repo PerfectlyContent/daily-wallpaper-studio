@@ -35,13 +35,12 @@ export async function generateImage(prompt: string): Promise<GenerationResult> {
       model: 'gemini-2.5-flash-image',
       generationConfig: {
         responseModalities: ['Text', 'Image'],
-        aspectRatio: '9:16',
       } as any,
     });
 
     // Enhance prompt for better phone wallpaper results
-    const enhancedPrompt = `Create a beautiful phone wallpaper image. ${prompt}.
-The image MUST be in vertical 9:16 portrait orientation suitable for a phone screen.
+    const enhancedPrompt = `Create a vertical portrait phone wallpaper (9:16 tall aspect ratio, taller than wide). ${prompt}.
+IMPORTANT: The image must be VERTICAL/PORTRAIT orientation - much taller than it is wide, like a phone screen.
 High quality, stunning composition, visually striking.
 If there is any text, make sure it fits completely within the image and is clearly readable.`;
 
